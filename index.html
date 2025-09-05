@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Geometry Connector</title>
+    <title>Enhanced Geometry Connector</title>
     <style>
         body {
             margin: 0;
@@ -55,6 +55,7 @@
             gap: 10px;
             margin-top: 15px;
             justify-content: center;
+            flex-wrap: wrap;
         }
 
         button {
@@ -88,10 +89,20 @@
             display: none;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
         }
+
+        .instructions {
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 12px;
+            text-align: center;
+            margin-bottom: 10px;
+        }
     </style>
 </head>
 <body>
     <div class="game-container">
+        <div class="instructions">
+            Drag connector to position • Rotate to aim • Click arrows to extend/retract • Connect all targets!
+        </div>
         <div class="ui">
             <div class="level">Level: <span id="currentLevel">1</span></div>
             <div>Score: <span id="score">0</span></div>
@@ -102,6 +113,8 @@
         <div class="controls">
             <button onclick="rotateConnector()">↻ Rotate</button>
             <button onclick="resetLevel()">↺ Reset</button>
+            <button onclick="extendAllArrows()">⟷ Extend All</button>
+            <button onclick="retractAllArrows()">⟷ Retract All</button>
             <button onclick="nextLevel()">Next Level ➤</button>
         </div>
     </div>
@@ -126,7 +139,8 @@
                 isDragging: false,
                 dragOffset: { x: 0, y: 0 }
             },
-            isWon: false
+            isWon: false,
+            selectedArrow: -1
         };
 
         // Level configurations
@@ -138,9 +152,9 @@
                     { x: 400, y: 450 }
                 ],
                 arrows: [
-                    { angle: 0, length: 80 },      // Right
-                    { angle: 120, length: 80 },    // Upper left
-                    { angle: 240, length: 80 }     // Lower left
+                    { angle: 0, length: 80, minLength: 40, maxLength: 200 },
+                    { angle: 120, length: 80, minLength: 40, maxLength: 200 },
+                    { angle: 240, length: 80, minLength: 40, maxLength: 200 }
                 ]
             },
             {
@@ -151,10 +165,10 @@
                     { x: 600, y: 500 }
                 ],
                 arrows: [
-                    { angle: 45, length: 90 },     // Upper right
-                    { angle: 135, length: 90 },    // Upper left
-                    { angle: 225, length: 90 },    // Lower left
-                    { angle: 315, length: 90 }     // Lower right
+                    { angle: 45, length: 90, minLength: 50, maxLength: 250 },
+                    { angle: 135, length: 90, minLength: 50, maxLength: 250 },
+                    { angle: 225, length: 90, minLength: 50, maxLength: 250 },
+                    { angle: 315, length: 90, minLength: 50, maxLength: 250 }
                 ]
             },
             {
@@ -166,11 +180,11 @@
                     { x: 500, y: 520 }
                 ],
                 arrows: [
-                    { angle: 0, length: 100 },
-                    { angle: 72, length: 100 },
-                    { angle: 144, length: 100 },
-                    { angle: 216, length: 100 },
-                    { angle: 288, length: 100 }
+                    { angle: 0, length: 100, minLength: 60, maxLength: 300 },
+                    { angle: 72, length: 100, minLength: 60, maxLength: 300 },
+                    { angle: 144, length: 100, minLength: 60, maxLength: 300 },
+                    { angle: 216, length: 100, minLength: 60, maxLength: 300 },
+                    { angle: 288, length: 100, minLength: 60, maxLength: 300 }
                 ]
             }
         ];
@@ -178,11 +192,12 @@
         function initLevel(levelNum) {
             const level = levels[(levelNum - 1) % levels.length];
             gameState.targets = [...level.targets];
-            gameState.connector.arrows = [...level.arrows];
+            gameState.connector.arrows = level.arrows.map(arrow => ({...arrow}));
             gameState.connector.x = 400;
             gameState.connector.y = 300;
             gameState.connector.rotation = 0;
             gameState.isWon = false;
+            gameState.selectedArrow = -1;
             document.getElementById('winMessage').style.display = 'none';
         }
 
@@ -217,16 +232,16 @@
             ctx.stroke();
             
             // Draw arrows
-            arrows.forEach(arrow => {
+            arrows.forEach((arrow, index) => {
                 ctx.save();
                 ctx.rotate(arrow.angle * Math.PI / 180);
                 
-                // Arrow line
+                // Arrow line - thicker if selected
                 ctx.beginPath();
                 ctx.moveTo(15, 0);
                 ctx.lineTo(arrow.length, 0);
-                ctx.strokeStyle = '#4A90E2';
-                ctx.lineWidth = 4;
+                ctx.strokeStyle = gameState.selectedArrow === index ? '#FFD700' : '#4A90E2';
+                ctx.lineWidth = gameState.selectedArrow === index ? 6 : 4;
                 ctx.stroke();
                 
                 // Arrow head
@@ -235,8 +250,15 @@
                 ctx.lineTo(arrow.length - 15, -8);
                 ctx.lineTo(arrow.length - 15, 8);
                 ctx.closePath();
-                ctx.fillStyle = '#4A90E2';
+                ctx.fillStyle = gameState.selectedArrow === index ? '#FFD700' : '#4A90E2';
                 ctx.fill();
+                
+                // Draw length indicator for selected arrow
+                if (gameState.selectedArrow === index) {
+                    ctx.fillStyle = 'white';
+                    ctx.font = '12px Arial';
+                    ctx.fillText(Math.round(arrow.length), arrow.length / 2, -15);
+                }
                 
                 ctx.restore();
             });
@@ -279,6 +301,23 @@
         function checkWin() {
             const connections = checkConnections();
             return connections.every(conn => conn) && connections.length === gameState.targets.length;
+        }
+
+        function getArrowAtMouse(mouseX, mouseY) {
+            const connector = gameState.connector;
+            const endpoints = getArrowEndpoints(connector);
+            
+            for (let i = 0; i < endpoints.length; i++) {
+                const endpoint = endpoints[i];
+                const distance = Math.sqrt(
+                    Math.pow(mouseX - endpoint.x, 2) + 
+                    Math.pow(mouseY - endpoint.y, 2)
+                );
+                if (distance < 20) {
+                    return i;
+                }
+            }
+            return -1;
         }
 
         function draw() {
@@ -329,6 +368,14 @@
             const mouseX = e.clientX - rect.left;
             const mouseY = e.clientY - rect.top;
             
+            // Check if clicking on an arrow endpoint
+            const arrowIndex = getArrowAtMouse(mouseX, mouseY);
+            if (arrowIndex !== -1) {
+                gameState.selectedArrow = arrowIndex;
+                return;
+            }
+            
+            // Check if clicking on connector center
             const distance = Math.sqrt(
                 Math.pow(mouseX - gameState.connector.x, 2) + 
                 Math.pow(mouseY - gameState.connector.y, 2)
@@ -339,6 +386,9 @@
                 gameState.connector.dragOffset.x = mouseX - gameState.connector.x;
                 gameState.connector.dragOffset.y = mouseY - gameState.connector.y;
                 canvas.style.cursor = 'grabbing';
+                gameState.selectedArrow = -1;
+            } else {
+                gameState.selectedArrow = -1;
             }
         });
 
@@ -362,6 +412,45 @@
             canvas.style.cursor = 'grab';
         });
 
+        // Keyboard controls for selected arrow
+        document.addEventListener('keydown', (e) => {
+            if (gameState.selectedArrow === -1) return;
+            
+            const arrow = gameState.connector.arrows[gameState.selectedArrow];
+            
+            switch(e.key) {
+                case 'ArrowUp':
+                case '+':
+                case '=':
+                    if (arrow.length < arrow.maxLength) {
+                        arrow.length += 10;
+                    }
+                    e.preventDefault();
+                    break;
+                case 'ArrowDown':
+                case '-':
+                    if (arrow.length > arrow.minLength) {
+                        arrow.length -= 10;
+                    }
+                    e.preventDefault();
+                    break;
+            }
+        });
+
+        // Mouse wheel for extending/retracting selected arrow
+        canvas.addEventListener('wheel', (e) => {
+            if (gameState.selectedArrow === -1) return;
+            
+            e.preventDefault();
+            const arrow = gameState.connector.arrows[gameState.selectedArrow];
+            
+            if (e.deltaY < 0 && arrow.length < arrow.maxLength) {
+                arrow.length += 15;
+            } else if (e.deltaY > 0 && arrow.length > arrow.minLength) {
+                arrow.length -= 15;
+            }
+        });
+
         // Control functions
         function rotateConnector() {
             gameState.connector.rotation += Math.PI / 6; // 30 degrees
@@ -371,6 +460,18 @@
             initLevel(gameState.level);
             gameState.score = Math.max(0, gameState.score - 10);
             document.getElementById('score').textContent = gameState.score;
+        }
+
+        function extendAllArrows() {
+            gameState.connector.arrows.forEach(arrow => {
+                arrow.length = Math.min(arrow.length + 20, arrow.maxLength);
+            });
+        }
+
+        function retractAllArrows() {
+            gameState.connector.arrows.forEach(arrow => {
+                arrow.length = Math.max(arrow.length - 20, arrow.minLength);
+            });
         }
 
         function nextLevel() {
