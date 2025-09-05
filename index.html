@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Geometry Connector</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Arial', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        .game-container {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(31, 38, 135, 0.37);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+        }
+
+        canvas {
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 15px;
+            background: rgba(0, 0, 0, 0.1);
+            cursor: grab;
+        }
+
+        canvas:active {
+            cursor: grabbing;
+        }
+
+        .ui {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            color: white;
+            font-size: 18px;
+        }
+
+        .level {
+            font-weight: bold;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+            justify-content: center;
+        }
+
+        button {
+            background: rgba(255, 255, 255, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+        }
+
+        button:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+        }
+
+        .win-message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 255, 0, 0.9);
+            color: white;
+            padding: 30px;
+            border-radius: 15px;
+            font-size: 24px;
+            font-weight: bold;
+            display: none;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <div class="ui">
+            <div class="level">Level: <span id="currentLevel">1</span></div>
+            <div>Score: <span id="score">0</span></div>
+        </div>
+        
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+        
+        <div class="controls">
+            <button onclick="rotateConnector()">↻ Rotate</button>
+            <button onclick="resetLevel()">↺ Reset</button>
+            <button onclick="nextLevel()">Next Level ➤</button>
+        </div>
+    </div>
+
+    <div id="winMessage" class="win-message">
+        🎉 Perfect! All targets connected! 🎉
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        let gameState = {
+            level: 1,
+            score: 0,
+            targets: [],
+            connector: {
+                x: 400,
+                y: 300,
+                rotation: 0,
+                arrows: [],
+                isDragging: false,
+                dragOffset: { x: 0, y: 0 }
+            },
+            isWon: false
+        };
+
+        // Level configurations
+        const levels = [
+            {
+                targets: [
+                    { x: 150, y: 150 },
+                    { x: 650, y: 150 },
+                    { x: 400, y: 450 }
+                ],
+                arrows: [
+                    { angle: 0, length: 80 },      // Right
+                    { angle: 120, length: 80 },    // Upper left
+                    { angle: 240, length: 80 }     // Lower left
+                ]
+            },
+            {
+                targets: [
+                    { x: 200, y: 100 },
+                    { x: 600, y: 100 },
+                    { x: 200, y: 500 },
+                    { x: 600, y: 500 }
+                ],
+                arrows: [
+                    { angle: 45, length: 90 },     // Upper right
+                    { angle: 135, length: 90 },    // Upper left
+                    { angle: 225, length: 90 },    // Lower left
+                    { angle: 315, length: 90 }     // Lower right
+                ]
+            },
+            {
+                targets: [
+                    { x: 400, y: 80 },
+                    { x: 150, y: 300 },
+                    { x: 650, y: 300 },
+                    { x: 300, y: 520 },
+                    { x: 500, y: 520 }
+                ],
+                arrows: [
+                    { angle: 0, length: 100 },
+                    { angle: 72, length: 100 },
+                    { angle: 144, length: 100 },
+                    { angle: 216, length: 100 },
+                    { angle: 288, length: 100 }
+                ]
+            }
+        ];
+
+        function initLevel(levelNum) {
+            const level = levels[(levelNum - 1) % levels.length];
+            gameState.targets = [...level.targets];
+            gameState.connector.arrows = [...level.arrows];
+            gameState.connector.x = 400;
+            gameState.connector.y = 300;
+            gameState.connector.rotation = 0;
+            gameState.isWon = false;
+            document.getElementById('winMessage').style.display = 'none';
+        }
+
+        function drawTarget(x, y, isConnected = false) {
+            ctx.beginPath();
+            ctx.arc(x, y, 20, 0, Math.PI * 2);
+            ctx.fillStyle = isConnected ? '#4CAF50' : '#FF6B6B';
+            ctx.fill();
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            
+            // Inner circle
+            ctx.beginPath();
+            ctx.arc(x, y, 8, 0, Math.PI * 2);
+            ctx.fillStyle = '#fff';
+            ctx.fill();
+        }
+
+        function drawConnector(x, y, rotation, arrows) {
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.rotate(rotation);
+            
+            // Center circle
+            ctx.beginPath();
+            ctx.arc(0, 0, 15, 0, Math.PI * 2);
+            ctx.fillStyle = '#4A90E2';
+            ctx.fill();
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            
+            // Draw arrows
+            arrows.forEach(arrow => {
+                ctx.save();
+                ctx.rotate(arrow.angle * Math.PI / 180);
+                
+                // Arrow line
+                ctx.beginPath();
+                ctx.moveTo(15, 0);
+                ctx.lineTo(arrow.length, 0);
+                ctx.strokeStyle = '#4A90E2';
+                ctx.lineWidth = 4;
+                ctx.stroke();
+                
+                // Arrow head
+                ctx.beginPath();
+                ctx.moveTo(arrow.length, 0);
+                ctx.lineTo(arrow.length - 15, -8);
+                ctx.lineTo(arrow.length - 15, 8);
+                ctx.closePath();
+                ctx.fillStyle = '#4A90E2';
+                ctx.fill();
+                
+                ctx.restore();
+            });
+            
+            ctx.restore();
+        }
+
+        function getArrowEndpoints(connector) {
+            const endpoints = [];
+            connector.arrows.forEach(arrow => {
+                const totalAngle = connector.rotation + (arrow.angle * Math.PI / 180);
+                const endX = connector.x + Math.cos(totalAngle) * arrow.length;
+                const endY = connector.y + Math.sin(totalAngle) * arrow.length;
+                endpoints.push({ x: endX, y: endY });
+            });
+            return endpoints;
+        }
+
+        function checkConnections() {
+            const endpoints = getArrowEndpoints(gameState.connector);
+            const connected = [];
+            
+            gameState.targets.forEach((target, targetIndex) => {
+                let isConnected = false;
+                endpoints.forEach(endpoint => {
+                    const distance = Math.sqrt(
+                        Math.pow(endpoint.x - target.x, 2) + 
+                        Math.pow(endpoint.y - target.y, 2)
+                    );
+                    if (distance < 25) {
+                        isConnected = true;
+                    }
+                });
+                connected.push(isConnected);
+            });
+            
+            return connected;
+        }
+
+        function checkWin() {
+            const connections = checkConnections();
+            return connections.every(conn => conn) && connections.length === gameState.targets.length;
+        }
+
+        function draw() {
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw targets
+            const connections = checkConnections();
+            gameState.targets.forEach((target, index) => {
+                drawTarget(target.x, target.y, connections[index]);
+            });
+            
+            // Draw connector
+            drawConnector(
+                gameState.connector.x, 
+                gameState.connector.y, 
+                gameState.connector.rotation, 
+                gameState.connector.arrows
+            );
+            
+            // Draw connection lines
+            const endpoints = getArrowEndpoints(gameState.connector);
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([5, 5]);
+            endpoints.forEach(endpoint => {
+                ctx.beginPath();
+                ctx.moveTo(gameState.connector.x, gameState.connector.y);
+                ctx.lineTo(endpoint.x, endpoint.y);
+                ctx.stroke();
+            });
+            ctx.setLineDash([]);
+            
+            // Check win condition
+            if (checkWin() && !gameState.isWon) {
+                gameState.isWon = true;
+                gameState.score += 100;
+                document.getElementById('score').textContent = gameState.score;
+                setTimeout(() => {
+                    document.getElementById('winMessage').style.display = 'block';
+                }, 500);
+            }
+        }
+
+        // Mouse events
+        canvas.addEventListener('mousedown', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            
+            const distance = Math.sqrt(
+                Math.pow(mouseX - gameState.connector.x, 2) + 
+                Math.pow(mouseY - gameState.connector.y, 2)
+            );
+            
+            if (distance < 30) {
+                gameState.connector.isDragging = true;
+                gameState.connector.dragOffset.x = mouseX - gameState.connector.x;
+                gameState.connector.dragOffset.y = mouseY - gameState.connector.y;
+                canvas.style.cursor = 'grabbing';
+            }
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (gameState.connector.isDragging) {
+                const rect = canvas.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+                
+                gameState.connector.x = mouseX - gameState.connector.dragOffset.x;
+                gameState.connector.y = mouseY - gameState.connector.dragOffset.y;
+                
+                // Keep connector within canvas bounds
+                gameState.connector.x = Math.max(50, Math.min(canvas.width - 50, gameState.connector.x));
+                gameState.connector.y = Math.max(50, Math.min(canvas.height - 50, gameState.connector.y));
+            }
+        });
+
+        canvas.addEventListener('mouseup', () => {
+            gameState.connector.isDragging = false;
+            canvas.style.cursor = 'grab';
+        });
+
+        // Control functions
+        function rotateConnector() {
+            gameState.connector.rotation += Math.PI / 6; // 30 degrees
+        }
+
+        function resetLevel() {
+            initLevel(gameState.level);
+            gameState.score = Math.max(0, gameState.score - 10);
+            document.getElementById('score').textContent = gameState.score;
+        }
+
+        function nextLevel() {
+            if (gameState.isWon) {
+                gameState.level++;
+                document.getElementById('currentLevel').textContent = gameState.level;
+                initLevel(gameState.level);
+            }
+        }
+
+        // Game loop
+        function gameLoop() {
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Initialize game
+        initLevel(1);
+        gameLoop();
+
+        // Touch events for mobile
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            const mouseEvent = new MouseEvent('mousedown', {
+                clientX: touch.clientX,
+                clientY: touch.clientY
+            });
+            canvas.dispatchEvent(mouseEvent);
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            const mouseEvent = new MouseEvent('mousemove', {
+                clientX: touch.clientX,
+                clientY: touch.clientY
+            });
+            canvas.dispatchEvent(mouseEvent);
+        });
+
+        canvas.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            const mouseEvent = new MouseEvent('mouseup', {});
+            canvas.dispatchEvent(mouseEvent);
+        });
+    </script>
+</body>
+</html>
