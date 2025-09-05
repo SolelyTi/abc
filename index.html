@@ -445,9 +445,9 @@
             const arrow = gameState.connector.arrows[gameState.selectedArrow];
             
             if (e.deltaY < 0 && arrow.length < arrow.maxLength) {
-                arrow.length += 15;
+                arrow.length += 20;
             } else if (e.deltaY > 0 && arrow.length > arrow.minLength) {
-                arrow.length -= 15;
+                arrow.length -= 20;
             }
         });
 
